@@ -19,6 +19,7 @@ import * as THREE from 'three'
 
 type PanelName = 'projects' | 'experience' | 'skills'
 type FocusName = 'overview' | PanelName
+type ShotStatus = 'ready' | 'shooting' | 'made'
 const BALL_RADIUS = 0.13
 
 type CameraControlsHandle = {
@@ -346,23 +347,87 @@ function AttackZone({
 }
 
 function Basketball({
-  onOpen,
   onHover,
+  onShoot,
+  onShotMade,
+  shotRequest,
 }: {
-  onOpen: () => void
   onHover: (hovered: boolean) => void
+  onShoot: () => void
+  onShotMade: () => void
+  shotRequest: number
 }) {
   const ballRef = useRef<THREE.Group>(null)
   const targetScale = useRef(1)
-  const elapsed = useRef(0)
+  const idleElapsed = useRef(0)
+  const shotElapsed = useRef(0)
+  const lastShotRequest = useRef(0)
+  const shotActive = useRef(false)
+  const shotStart = new THREE.Vector3(0, 0.22, 0)
+  const hoopCenter = new THREE.Vector3(0, 1.92, 4.1)
+  const shotDuration = 1.05
+  const dropDuration = 0.45
+  const returnDuration = 0.7
 
   useFrame((_, delta) => {
     if (!ballRef.current) return
-    elapsed.current += delta
-    ballRef.current.rotation.y += delta * 0.2
-    ballRef.current.position.y = 0.22 + Math.sin(elapsed.current * 1.2) * 0.025
+    const frameDelta = Math.min(delta, 0.05)
+
+    if (shotRequest !== lastShotRequest.current) {
+      lastShotRequest.current = shotRequest
+      shotElapsed.current = 0
+      shotActive.current = true
+      targetScale.current = 1
+      onHover(false)
+      document.body.style.cursor = 'auto'
+    }
+
+    if (shotActive.current) {
+      shotElapsed.current += frameDelta
+      const elapsed = shotElapsed.current
+      ballRef.current.rotation.x += frameDelta * 8
+      ballRef.current.rotation.z += frameDelta * 11
+
+      if (elapsed < shotDuration) {
+        const progress = elapsed / shotDuration
+        ballRef.current.position.lerpVectors(shotStart, hoopCenter, progress)
+        ballRef.current.position.y += Math.sin(progress * Math.PI) * 2.15
+      } else if (elapsed < shotDuration + dropDuration) {
+        const progress = (elapsed - shotDuration) / dropDuration
+        ballRef.current.position.set(
+          hoopCenter.x,
+          hoopCenter.y - progress * 0.72,
+          hoopCenter.z,
+        )
+      } else if (elapsed < shotDuration + dropDuration + returnDuration) {
+        const progress =
+          (elapsed - shotDuration - dropDuration) / returnDuration
+        const easedProgress = 1 - (1 - progress) ** 2
+        ballRef.current.position.set(
+          THREE.MathUtils.lerp(hoopCenter.x, shotStart.x, easedProgress),
+          shotStart.y + Math.sin(progress * Math.PI) * 0.32,
+          THREE.MathUtils.lerp(hoopCenter.z, shotStart.z, easedProgress),
+        )
+      } else {
+        shotActive.current = false
+        ballRef.current.position.copy(shotStart)
+        ballRef.current.rotation.set(0, 0, 0)
+        onShotMade()
+      }
+    } else {
+      idleElapsed.current += frameDelta
+      ballRef.current.rotation.y += frameDelta * 0.2
+      ballRef.current.position.y =
+        shotStart.y + Math.sin(idleElapsed.current * 1.2) * 0.025
+    }
+
     const scale = ballRef.current.scale.x
-    const nextScale = THREE.MathUtils.damp(scale, targetScale.current, 8, delta)
+    const nextScale = THREE.MathUtils.damp(
+      scale,
+      targetScale.current,
+      8,
+      frameDelta,
+    )
     ballRef.current.scale.setScalar(nextScale)
   })
 
@@ -376,13 +441,15 @@ function Basketball({
       position={[0, 0.22, 0]}
       onClick={(event) => {
         event.stopPropagation()
-        onOpen()
+        onShoot()
       }}
       onPointerOver={(event) => {
         event.stopPropagation()
-        targetScale.current = 1.12
-        onHover(true)
-        document.body.style.cursor = 'pointer'
+        if (!shotActive.current) {
+          targetScale.current = 1.12
+          onHover(true)
+          document.body.style.cursor = 'pointer'
+        }
       }}
       onPointerOut={() => {
         targetScale.current = 1
@@ -435,10 +502,16 @@ function Basketball({
 function CourtScene({
   onOpen,
   onBallHover,
+  onShoot,
+  onShotMade,
+  shotRequest,
   focus,
 }: {
   onOpen: (panel: PanelName) => void
   onBallHover: (hovered: boolean) => void
+  onShoot: () => void
+  onShotMade: () => void
+  shotRequest: number
   focus: FocusName
 }) {
   const controlsRef = useRef<CameraControlsHandle>(null)
@@ -510,8 +583,10 @@ function CourtScene({
       <Hoop end="far" onOpen={() => onOpen('projects')} />
       <Hoop end="near" onOpen={() => onOpen('projects')} />
       <Basketball
-        onOpen={() => onOpen('skills')}
         onHover={onBallHover}
+        onShoot={onShoot}
+        onShotMade={onShotMade}
+        shotRequest={shotRequest}
       />
     </>
   )
@@ -713,10 +788,27 @@ function App() {
   const [activePanel, setActivePanel] = useState<PanelName | null>(null)
   const [ballHovered, setBallHovered] = useState(false)
   const [sceneFocus, setSceneFocus] = useState<FocusName>('overview')
+  const [shotRequest, setShotRequest] = useState(0)
+  const [shotStatus, setShotStatus] = useState<ShotStatus>('ready')
+  const [shotsAttempted, setShotsAttempted] = useState(0)
+  const [shotsMade, setShotsMade] = useState(0)
+  const shotLock = useRef(false)
   const closeModal = () => setActivePanel(null)
   const openPanel = (panel: PanelName) => {
     setSceneFocus(panel)
     setActivePanel(panel)
+  }
+  const shoot = () => {
+    if (shotLock.current) return
+    shotLock.current = true
+    setShotStatus('shooting')
+    setShotsAttempted((attempts) => attempts + 1)
+    setShotRequest((request) => request + 1)
+  }
+  const finishShot = () => {
+    shotLock.current = false
+    setShotStatus('made')
+    setShotsMade((made) => made + 1)
   }
 
   useEffect(
@@ -746,6 +838,9 @@ function App() {
           <CourtScene
             onOpen={openPanel}
             onBallHover={setBallHovered}
+            onShoot={shoot}
+            onShotMade={finishShot}
+            shotRequest={shotRequest}
             focus={sceneFocus}
           />
         </Canvas>
@@ -956,6 +1051,31 @@ function App() {
               {item.label}
             </button>
           ))}
+          {shotsAttempted > 0 && (
+            <span
+              aria-live="polite"
+              className="inline-flex min-h-9 items-center border border-white/10 bg-[#151716]/65 px-3 font-mono text-[9px] tracking-[0.08em] text-stone-400"
+            >
+              MADE {shotsMade}/{shotsAttempted}
+            </span>
+          )}
+          <button
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation()
+              shoot()
+            }}
+            disabled={shotStatus === 'shooting'}
+            className="inline-flex min-h-9 items-center gap-2 bg-[#bd694b] px-3 text-[10px] font-medium text-[#1c1715] transition hover:bg-[#d28060] active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
+          >
+            <Crosshair aria-hidden="true" className="size-3.5" strokeWidth={1.5} />
+            {shotStatus === 'shooting'
+              ? 'Shot in the air...'
+              : shotStatus === 'made'
+                ? 'Shoot again'
+                : 'Shoot'}
+          </button>
           <span className="inline-flex w-full items-center gap-2 pt-1 font-mono text-[9px] tracking-[0.08em] text-stone-500 sm:w-auto sm:pl-2 sm:pt-0">
             <Crosshair
               aria-hidden="true"
@@ -980,7 +1100,7 @@ function App() {
             transition={{ type: 'spring', stiffness: 100, damping: 20 }}
             className="pointer-events-none absolute left-1/2 top-[43%] z-10 hidden -translate-x-1/2 border border-white/10 bg-[#191c1a]/90 px-3 py-2 font-mono text-[10px] tracking-[0.12em] text-stone-200 backdrop-blur-md md:block"
           >
-            CLICK TO OPEN PLAYER STATS
+            CLICK TO SHOOT
           </motion.div>
         )}
       </AnimatePresence>
