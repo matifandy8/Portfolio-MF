@@ -24,3 +24,16 @@ pnpm lint
 pnpm build
 pnpm preview
 ```
+
+## Browser regression checks
+
+```sh
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm test:e2e
+```
+
+The suite starts Vite and checks modal focus/restore behavior, Profile label spacing,
+and initial HTML metadata at desktop (1432×1191) and phone (390×844) viewports.
+To use an existing Chromium install, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its
+executable path. Browser traces are kept on failure; generated artifacts are ignored.
