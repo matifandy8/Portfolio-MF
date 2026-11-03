@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import * as THREE from 'three'
+import { Modal } from './Modal'
 
 type PanelName = 'projects' | 'experience' | 'skills' | 'profile' | 'contact'
 type FocusName = 'overview' | PanelName
@@ -1640,7 +1641,7 @@ function PanelContent({
             {playerStats.map((stat) => (
               <div
                 key={stat.code}
-                className="grid gap-3 py-4 sm:grid-cols-[64px_1fr]"
+                className="grid gap-3 py-4 sm:grid-cols-[max-content_minmax(0,1fr)] sm:gap-x-5"
               >
                 <div className="flex items-baseline gap-2">
                   <span className="font-mono text-sm text-[#df9574]">{stat.code}</span>
@@ -1784,32 +1785,13 @@ function ContentModal({
   onClose: () => void
   onOpen: (panel: PanelName) => void
 }) {
-  useEffect(() => {
-    if (!panel) return
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, panel])
 
   return (
     <AnimatePresence>
       {panel && (
-        <motion.div
-          className="fixed inset-0 z-30 grid place-items-center overflow-y-auto bg-[#0d0f0e]/75 px-4 py-8 backdrop-blur-sm"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) onClose()
-          }}
-        >
+        <Modal onClose={onClose} focusKey={panel} labelledBy="panel-title">
           <motion.section
             layout
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="panel-title"
             className="my-auto w-full max-w-3xl border border-white/10 bg-[#1b1e1c]/95 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.07)] sm:p-8"
             initial={{ opacity: 0, y: 18, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -1839,7 +1821,7 @@ function ContentModal({
             </div>
             <PanelContent panel={panel} onOpen={onOpen} />
           </motion.section>
-        </motion.div>
+        </Modal>
       )}
     </AnimatePresence>
   )
